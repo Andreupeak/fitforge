@@ -3,6 +3,7 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -17,8 +18,17 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Check if dist folder exists
+const distPath = join(__dirname, '../dist');
+console.log('Looking for dist at:', distPath);
+console.log('Dist folder exists:', existsSync(distPath));
+
 // Serve static files from the built frontend
-app.use(express.static(join(__dirname, '../dist')));
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+} else {
+  console.warn('Warning: dist folder not found. Run npm run build first.');
+}
 
 // API Keys
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
@@ -43,11 +53,11 @@ async function fetchFromExerciseDB(endpoint) {
       'X-RapidAPI-Host': EXERCISEDB_HOST
     }
   });
-  
+
   if (!response.ok) {
     throw new Error(`ExerciseDB API error: ${response.status}`);
   }
-  
+
   return response.json();
 }
 
@@ -59,7 +69,7 @@ app.get('/api/bodyPartList', async (req, res) => {
     if (cache.bodyParts && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
       return res.json(cache.bodyParts);
     }
-    
+
     const data = await fetchFromExerciseDB('/exercises/bodyPartList');
     cache.bodyParts = data;
     cache.lastFetch = Date.now();
@@ -76,7 +86,7 @@ app.get('/api/equipmentList', async (req, res) => {
     if (cache.equipment && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
       return res.json(cache.equipment);
     }
-    
+
     const data = await fetchFromExerciseDB('/exercises/equipmentList');
     cache.equipment = data;
     cache.lastFetch = Date.now();
@@ -93,7 +103,7 @@ app.get('/api/targetList', async (req, res) => {
     if (cache.targets && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
       return res.json(cache.targets);
     }
-    
+
     const data = await fetchFromExerciseDB('/exercises/targetList');
     cache.targets = data;
     cache.lastFetch = Date.now();
@@ -174,7 +184,7 @@ app.get('/api/exercises/name/:name', async (req, res) => {
 app.post('/api/coach', async (req, res) => {
   try {
     const { message, conversationHistory = [] } = req.body;
-    
+
     const systemPrompt = `You are FitForge AI Coach, an expert fitness trainer and nutritionist. You help users with:
 - Exercise form and technique questions
 - Workout modifications for different fitness levels
@@ -214,7 +224,7 @@ For nutrition, focus on practical meal suggestions for someone trying to gain we
     }
 
     const data = await response.json();
-    res.json({ 
+    res.json({
       response: data.choices[0].message.content,
       usage: data.usage
     });
@@ -227,7 +237,7 @@ For nutrition, focus on practical meal suggestions for someone trying to gain we
 // AI Workout Generator
 app.post('/api/workout/generate', async (req, res) => {
   try {
-    const { 
+    const {
       goals = ['muscle building'],
       duration = 30,
       equipment = ['body weight'],
@@ -237,7 +247,7 @@ app.post('/api/workout/generate', async (req, res) => {
 
     // First, fetch some exercises that match the criteria
     let exercises = [];
-    
+
     // Fetch bodyweight exercises
     for (const equip of equipment) {
       try {
@@ -250,7 +260,7 @@ app.post('/api/workout/generate', async (req, res) => {
 
     // Ask AI to create a structured workout from available exercises
     const exerciseNames = exercises.slice(0, 50).map(e => `${e.name} (${e.target})`).join(', ');
-    
+
     const prompt = `Create a ${duration}-minute workout routine for a ${fitnessLevel} with these goals: ${goals.join(', ')}.
     
 Available exercises: ${exerciseNames}
@@ -292,7 +302,7 @@ Only include exercises from the available list. Keep it appropriate for the fitn
 
     const data = await response.json();
     let workout;
-    
+
     try {
       // Parse the AI response as JSON
       const content = data.choices[0].message.content;
@@ -317,7 +327,7 @@ Only include exercises from the available list. Keep it appropriate for the fitn
     const enrichedWorkout = {
       ...workout,
       main: workout.main.map(exercise => {
-        const match = exercises.find(e => 
+        const match = exercises.find(e =>
           e.name.toLowerCase().includes(exercise.name.toLowerCase()) ||
           exercise.name.toLowerCase().includes(e.name.toLowerCase())
         );
@@ -341,24 +351,24 @@ Only include exercises from the available list. Keep it appropriate for the fitn
 app.post('/api/recovery/estimate', async (req, res) => {
   try {
     const { workout, previousWorkouts = [] } = req.body;
-    
+
     // Simple recovery estimation based on workout intensity
     const musclesWorked = workout.main?.map(e => e.target).filter(Boolean) || [];
     const uniqueMuscles = [...new Set(musclesWorked)];
-    
+
     // Base recovery time in hours
     let recoveryHours = 24;
-    
+
     // More muscles = more recovery needed
     recoveryHours += uniqueMuscles.length * 6;
-    
+
     // Check if same muscles were worked recently
     const last48Hours = previousWorkouts.filter(w => {
       const workoutDate = new Date(w.date);
       const now = new Date();
       return (now - workoutDate) / (1000 * 60 * 60) < 48;
     });
-    
+
     if (last48Hours.length > 0) {
       recoveryHours += 12; // Need more rest if worked out recently
     }
@@ -366,7 +376,7 @@ app.post('/api/recovery/estimate', async (req, res) => {
     res.json({
       estimatedHours: Math.min(recoveryHours, 72),
       musclesWorked: uniqueMuscles,
-      recommendation: recoveryHours > 48 
+      recommendation: recoveryHours > 48
         ? "Take a rest day or do light stretching"
         : "You can do a light workout targeting different muscles",
       nextWorkoutDate: new Date(Date.now() + recoveryHours * 60 * 60 * 1000).toISOString()
@@ -379,7 +389,24 @@ app.post('/api/recovery/estimate', async (req, res) => {
 
 // Serve React app for all other routes
 app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, '../dist/index.html'));
+  const indexPath = join(__dirname, '../dist/index.html');
+  if (existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>FitForge</title></head>
+        <body style="background:#0f0f23;color:white;font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;">
+          <div style="text-align:center;">
+            <h1>🏋️ FitForge API</h1>
+            <p>Server is running! Build the frontend with npm run build.</p>
+            <p>API endpoints available at /api/*</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
 });
 
 app.listen(PORT, () => {
