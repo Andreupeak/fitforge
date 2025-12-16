@@ -99,10 +99,16 @@ function addGifUrls(exercises) {
 }
 
 // Image proxy - fetches GIFs from ExerciseDB with authentication
+// Endpoint: /image?exerciseId={id}&resolution={res}
 app.get('/api/image/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const response = await fetch(`https://${EXERCISEDB_HOST}/image/${id}`, {
+    const resolution = req.query.res || 360; // Default to 360p
+
+    const imageUrl = `https://${EXERCISEDB_HOST}/image?exerciseId=${id}&resolution=${resolution}`;
+    console.log('Fetching image:', imageUrl);
+
+    const response = await fetch(imageUrl, {
       headers: {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': EXERCISEDB_HOST
@@ -110,7 +116,7 @@ app.get('/api/image/:id', async (req, res) => {
     });
 
     if (!response.ok) {
-      console.error('Image fetch failed:', response.status);
+      console.error('Image fetch failed:', response.status, await response.text());
       return res.status(404).send('Image not found');
     }
 
