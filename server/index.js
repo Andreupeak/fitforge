@@ -88,15 +88,45 @@ async function fetchFromExerciseDB(endpoint) {
 }
 
 // Helper function to add GIF URLs to exercises
-// ExerciseDB v2 uses: https://v2.exercisedb.io/image/{id}
+// Uses our server as a proxy to add authentication
 function addGifUrls(exercises) {
   if (!Array.isArray(exercises)) return exercises;
 
   return exercises.map(exercise => ({
     ...exercise,
-    gifUrl: `https://v2.exercisedb.io/image/${exercise.id}`
+    gifUrl: `/api/image/${exercise.id}`
   }));
 }
+
+// Image proxy - fetches GIFs from ExerciseDB with authentication
+app.get('/api/image/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const response = await fetch(`https://${EXERCISEDB_HOST}/image/${id}`, {
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': EXERCISEDB_HOST
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Image fetch failed:', response.status);
+      return res.status(404).send('Image not found');
+    }
+
+    // Get content type and pipe the image
+    const contentType = response.headers.get('content-type') || 'image/gif';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+
+    // Stream the response to client
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error('Error fetching image:', error);
+    res.status(500).send('Failed to fetch image');
+  }
+});
 
 // ===== EXERCISE ROUTES =====
 
@@ -195,8 +225,8 @@ app.get('/api/exercises/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const data = await fetchFromExerciseDB(`/exercises/exercise/${id}`);
-    // Add GIF URL for single exercise
-    res.json({ ...data, gifUrl: `https://v2.exercisedb.io/image/${data.id}` });
+    // Add GIF URL using our proxy
+    res.json({ ...data, gifUrl: `/api/image/${data.id}` });
   } catch (error) {
     console.error('Error fetching exercise:', error);
     res.status(500).json({ error: 'Failed to fetch exercise' });
