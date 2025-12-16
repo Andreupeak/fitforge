@@ -30,9 +30,9 @@ if (existsSync(distPath)) {
   console.warn('Warning: dist folder not found. Run npm run build first.');
 }
 
-// API Keys
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// API Keys - trim to remove any accidental whitespace/newlines
+const RAPIDAPI_KEY = (process.env.RAPIDAPI_KEY || '').trim();
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
 const EXERCISEDB_HOST = 'exercisedb.p.rapidapi.com';
 
 // Log API key status at startup (without revealing the actual keys)
