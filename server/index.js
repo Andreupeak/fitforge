@@ -87,6 +87,17 @@ async function fetchFromExerciseDB(endpoint) {
   }
 }
 
+// Helper function to add GIF URLs to exercises
+// ExerciseDB v2 uses: https://v2.exercisedb.io/image/{id}
+function addGifUrls(exercises) {
+  if (!Array.isArray(exercises)) return exercises;
+
+  return exercises.map(exercise => ({
+    ...exercise,
+    gifUrl: `https://v2.exercisedb.io/image/${exercise.id}`
+  }));
+}
+
 // ===== EXERCISE ROUTES =====
 
 // Get all body parts
@@ -146,7 +157,7 @@ app.get('/api/exercises/bodyPart/:bodyPart', async (req, res) => {
     const { bodyPart } = req.params;
     const limit = req.query.limit || 50;
     const data = await fetchFromExerciseDB(`/exercises/bodyPart/${encodeURIComponent(bodyPart)}?limit=${limit}`);
-    res.json(data);
+    res.json(addGifUrls(data));
   } catch (error) {
     console.error('Error fetching exercises by body part:', error);
     res.status(500).json({ error: 'Failed to fetch exercises' });
@@ -159,7 +170,7 @@ app.get('/api/exercises/equipment/:equipment', async (req, res) => {
     const { equipment } = req.params;
     const limit = req.query.limit || 50;
     const data = await fetchFromExerciseDB(`/exercises/equipment/${encodeURIComponent(equipment)}?limit=${limit}`);
-    res.json(data);
+    res.json(addGifUrls(data));
   } catch (error) {
     console.error('Error fetching exercises by equipment:', error);
     res.status(500).json({ error: 'Failed to fetch exercises' });
@@ -172,7 +183,7 @@ app.get('/api/exercises/target/:target', async (req, res) => {
     const { target } = req.params;
     const limit = req.query.limit || 50;
     const data = await fetchFromExerciseDB(`/exercises/target/${encodeURIComponent(target)}?limit=${limit}`);
-    res.json(data);
+    res.json(addGifUrls(data));
   } catch (error) {
     console.error('Error fetching exercises by target:', error);
     res.status(500).json({ error: 'Failed to fetch exercises' });
@@ -184,7 +195,8 @@ app.get('/api/exercises/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const data = await fetchFromExerciseDB(`/exercises/exercise/${id}`);
-    res.json(data);
+    // Add GIF URL for single exercise
+    res.json({ ...data, gifUrl: `https://v2.exercisedb.io/image/${data.id}` });
   } catch (error) {
     console.error('Error fetching exercise:', error);
     res.status(500).json({ error: 'Failed to fetch exercise' });
@@ -197,7 +209,7 @@ app.get('/api/exercises/name/:name', async (req, res) => {
     const { name } = req.params;
     const limit = req.query.limit || 20;
     const data = await fetchFromExerciseDB(`/exercises/name/${encodeURIComponent(name)}?limit=${limit}`);
-    res.json(data);
+    res.json(addGifUrls(data));
   } catch (error) {
     console.error('Error searching exercises:', error);
     res.status(500).json({ error: 'Failed to search exercises' });
