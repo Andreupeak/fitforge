@@ -1,0 +1,387 @@
+import express from 'express';
+import cors from 'cors';
+import fetch from 'node-fetch';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve static files from the built frontend
+app.use(express.static(join(__dirname, '../dist')));
+
+// API Keys
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const EXERCISEDB_HOST = 'exercisedb.p.rapidapi.com';
+
+// Cache for exercise data (reduces API calls)
+const cache = {
+  exercises: null,
+  bodyParts: null,
+  equipment: null,
+  targets: null,
+  lastFetch: null,
+  CACHE_DURATION: 1000 * 60 * 60 // 1 hour
+};
+
+// Helper function to fetch from ExerciseDB
+async function fetchFromExerciseDB(endpoint) {
+  const response = await fetch(`https://${EXERCISEDB_HOST}${endpoint}`, {
+    headers: {
+      'X-RapidAPI-Key': RAPIDAPI_KEY,
+      'X-RapidAPI-Host': EXERCISEDB_HOST
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`ExerciseDB API error: ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+// ===== EXERCISE ROUTES =====
+
+// Get all body parts
+app.get('/api/bodyPartList', async (req, res) => {
+  try {
+    if (cache.bodyParts && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
+      return res.json(cache.bodyParts);
+    }
+    
+    const data = await fetchFromExerciseDB('/exercises/bodyPartList');
+    cache.bodyParts = data;
+    cache.lastFetch = Date.now();
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching body parts:', error);
+    res.status(500).json({ error: 'Failed to fetch body parts' });
+  }
+});
+
+// Get all equipment types
+app.get('/api/equipmentList', async (req, res) => {
+  try {
+    if (cache.equipment && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
+      return res.json(cache.equipment);
+    }
+    
+    const data = await fetchFromExerciseDB('/exercises/equipmentList');
+    cache.equipment = data;
+    cache.lastFetch = Date.now();
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching equipment:', error);
+    res.status(500).json({ error: 'Failed to fetch equipment list' });
+  }
+});
+
+// Get all target muscles
+app.get('/api/targetList', async (req, res) => {
+  try {
+    if (cache.targets && Date.now() - cache.lastFetch < cache.CACHE_DURATION) {
+      return res.json(cache.targets);
+    }
+    
+    const data = await fetchFromExerciseDB('/exercises/targetList');
+    cache.targets = data;
+    cache.lastFetch = Date.now();
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching targets:', error);
+    res.status(500).json({ error: 'Failed to fetch target list' });
+  }
+});
+
+// Get exercises by body part
+app.get('/api/exercises/bodyPart/:bodyPart', async (req, res) => {
+  try {
+    const { bodyPart } = req.params;
+    const limit = req.query.limit || 50;
+    const data = await fetchFromExerciseDB(`/exercises/bodyPart/${encodeURIComponent(bodyPart)}?limit=${limit}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching exercises by body part:', error);
+    res.status(500).json({ error: 'Failed to fetch exercises' });
+  }
+});
+
+// Get exercises by equipment
+app.get('/api/exercises/equipment/:equipment', async (req, res) => {
+  try {
+    const { equipment } = req.params;
+    const limit = req.query.limit || 50;
+    const data = await fetchFromExerciseDB(`/exercises/equipment/${encodeURIComponent(equipment)}?limit=${limit}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching exercises by equipment:', error);
+    res.status(500).json({ error: 'Failed to fetch exercises' });
+  }
+});
+
+// Get exercises by target muscle
+app.get('/api/exercises/target/:target', async (req, res) => {
+  try {
+    const { target } = req.params;
+    const limit = req.query.limit || 50;
+    const data = await fetchFromExerciseDB(`/exercises/target/${encodeURIComponent(target)}?limit=${limit}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching exercises by target:', error);
+    res.status(500).json({ error: 'Failed to fetch exercises' });
+  }
+});
+
+// Get exercise by ID
+app.get('/api/exercises/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await fetchFromExerciseDB(`/exercises/exercise/${id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching exercise:', error);
+    res.status(500).json({ error: 'Failed to fetch exercise' });
+  }
+});
+
+// Search exercises by name
+app.get('/api/exercises/name/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const limit = req.query.limit || 20;
+    const data = await fetchFromExerciseDB(`/exercises/name/${encodeURIComponent(name)}?limit=${limit}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error searching exercises:', error);
+    res.status(500).json({ error: 'Failed to search exercises' });
+  }
+});
+
+// ===== AI COACH ROUTES =====
+
+// AI Coach Chat
+app.post('/api/coach', async (req, res) => {
+  try {
+    const { message, conversationHistory = [] } = req.body;
+    
+    const systemPrompt = `You are FitForge AI Coach, an expert fitness trainer and nutritionist. You help users with:
+- Exercise form and technique questions
+- Workout modifications for different fitness levels
+- Nutrition advice for muscle building and weight gain
+- Recovery tips and rest recommendations
+- Flexibility and mobility exercises
+- Posture improvement exercises
+- General fitness and health questions
+
+Be encouraging, practical, and specific in your advice. Keep responses concise but helpful.
+When suggesting exercises, mention that users can find them in the Exercise Library with animated demonstrations.
+For nutrition, focus on practical meal suggestions for someone trying to gain weight and build muscle.`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory,
+      { role: 'user', content: message }
+    ];
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        max_tokens: 500,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'OpenAI API error');
+    }
+
+    const data = await response.json();
+    res.json({ 
+      response: data.choices[0].message.content,
+      usage: data.usage
+    });
+  } catch (error) {
+    console.error('Error with AI coach:', error);
+    res.status(500).json({ error: 'Failed to get AI response' });
+  }
+});
+
+// AI Workout Generator
+app.post('/api/workout/generate', async (req, res) => {
+  try {
+    const { 
+      goals = ['muscle building'],
+      duration = 30,
+      equipment = ['body weight'],
+      targetMuscles = [],
+      fitnessLevel = 'beginner'
+    } = req.body;
+
+    // First, fetch some exercises that match the criteria
+    let exercises = [];
+    
+    // Fetch bodyweight exercises
+    for (const equip of equipment) {
+      try {
+        const data = await fetchFromExerciseDB(`/exercises/equipment/${encodeURIComponent(equip)}?limit=100`);
+        exercises = exercises.concat(data);
+      } catch (e) {
+        console.error(`Error fetching ${equip} exercises:`, e);
+      }
+    }
+
+    // Ask AI to create a structured workout from available exercises
+    const exerciseNames = exercises.slice(0, 50).map(e => `${e.name} (${e.target})`).join(', ');
+    
+    const prompt = `Create a ${duration}-minute workout routine for a ${fitnessLevel} with these goals: ${goals.join(', ')}.
+    
+Available exercises: ${exerciseNames}
+
+${targetMuscles.length ? `Focus on: ${targetMuscles.join(', ')}` : 'Create a balanced full-body workout'}
+
+Return a JSON object with this exact structure:
+{
+  "name": "workout name",
+  "description": "brief description",
+  "warmup": [{"name": "exercise", "duration": "30 seconds or reps"}],
+  "main": [{"name": "exercise", "sets": 3, "reps": "8-12", "rest": "60 seconds"}],
+  "cooldown": [{"name": "stretch", "duration": "30 seconds"}],
+  "tips": ["tip1", "tip2"]
+}
+
+Only include exercises from the available list. Keep it appropriate for the fitness level.`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are a professional fitness trainer. Return only valid JSON, no markdown.' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate workout');
+    }
+
+    const data = await response.json();
+    let workout;
+    
+    try {
+      // Parse the AI response as JSON
+      const content = data.choices[0].message.content;
+      workout = JSON.parse(content.replace(/```json\n?|```\n?/g, ''));
+    } catch (e) {
+      // If parsing fails, return a default structure
+      workout = {
+        name: "Quick Bodyweight Workout",
+        description: "A simple bodyweight routine",
+        warmup: [{ name: "Jumping Jacks", duration: "60 seconds" }],
+        main: [
+          { name: "Push-ups", sets: 3, reps: "10-15", rest: "60 seconds" },
+          { name: "Squats", sets: 3, reps: "15-20", rest: "60 seconds" },
+          { name: "Plank", sets: 3, reps: "30 seconds", rest: "30 seconds" }
+        ],
+        cooldown: [{ name: "Standing Stretch", duration: "60 seconds" }],
+        tips: ["Focus on form over speed", "Stay hydrated"]
+      };
+    }
+
+    // Match workout exercises with full exercise data including GIFs
+    const enrichedWorkout = {
+      ...workout,
+      main: workout.main.map(exercise => {
+        const match = exercises.find(e => 
+          e.name.toLowerCase().includes(exercise.name.toLowerCase()) ||
+          exercise.name.toLowerCase().includes(e.name.toLowerCase())
+        );
+        return {
+          ...exercise,
+          gifUrl: match?.gifUrl,
+          target: match?.target,
+          id: match?.id
+        };
+      })
+    };
+
+    res.json(enrichedWorkout);
+  } catch (error) {
+    console.error('Error generating workout:', error);
+    res.status(500).json({ error: 'Failed to generate workout' });
+  }
+});
+
+// Calculate recovery time based on workout
+app.post('/api/recovery/estimate', async (req, res) => {
+  try {
+    const { workout, previousWorkouts = [] } = req.body;
+    
+    // Simple recovery estimation based on workout intensity
+    const musclesWorked = workout.main?.map(e => e.target).filter(Boolean) || [];
+    const uniqueMuscles = [...new Set(musclesWorked)];
+    
+    // Base recovery time in hours
+    let recoveryHours = 24;
+    
+    // More muscles = more recovery needed
+    recoveryHours += uniqueMuscles.length * 6;
+    
+    // Check if same muscles were worked recently
+    const last48Hours = previousWorkouts.filter(w => {
+      const workoutDate = new Date(w.date);
+      const now = new Date();
+      return (now - workoutDate) / (1000 * 60 * 60) < 48;
+    });
+    
+    if (last48Hours.length > 0) {
+      recoveryHours += 12; // Need more rest if worked out recently
+    }
+
+    res.json({
+      estimatedHours: Math.min(recoveryHours, 72),
+      musclesWorked: uniqueMuscles,
+      recommendation: recoveryHours > 48 
+        ? "Take a rest day or do light stretching"
+        : "You can do a light workout targeting different muscles",
+      nextWorkoutDate: new Date(Date.now() + recoveryHours * 60 * 60 * 1000).toISOString()
+    });
+  } catch (error) {
+    console.error('Error estimating recovery:', error);
+    res.status(500).json({ error: 'Failed to estimate recovery' });
+  }
+});
+
+// Serve React app for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(join(__dirname, '../dist/index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`🏋️ FitForge server running on port ${PORT}`);
+});
