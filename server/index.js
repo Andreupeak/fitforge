@@ -35,6 +35,20 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXERCISEDB_HOST = 'exercisedb.p.rapidapi.com';
 
+// Log API key status at startup (without revealing the actual keys)
+console.log('RAPIDAPI_KEY configured:', !!RAPIDAPI_KEY, RAPIDAPI_KEY ? `(${RAPIDAPI_KEY.length} chars)` : '(missing)');
+console.log('OPENAI_API_KEY configured:', !!OPENAI_API_KEY, OPENAI_API_KEY ? `(${OPENAI_API_KEY.length} chars)` : '(missing)');
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    rapidApiKey: RAPIDAPI_KEY ? `configured (${RAPIDAPI_KEY.length} chars)` : 'MISSING',
+    openAiKey: OPENAI_API_KEY ? `configured (${OPENAI_API_KEY.length} chars)` : 'MISSING',
+    exerciseDbHost: EXERCISEDB_HOST
+  });
+});
+
 // Cache for exercise data (reduces API calls)
 const cache = {
   exercises: null,
