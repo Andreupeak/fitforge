@@ -61,18 +61,30 @@ const cache = {
 
 // Helper function to fetch from ExerciseDB
 async function fetchFromExerciseDB(endpoint) {
-  const response = await fetch(`https://${EXERCISEDB_HOST}${endpoint}`, {
-    headers: {
-      'X-RapidAPI-Key': RAPIDAPI_KEY,
-      'X-RapidAPI-Host': EXERCISEDB_HOST
+  const url = `https://${EXERCISEDB_HOST}${endpoint}`;
+  console.log('Fetching from ExerciseDB:', url);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': EXERCISEDB_HOST
+      }
+    });
+
+    console.log('ExerciseDB response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('ExerciseDB API error response:', errorText);
+      throw new Error(`ExerciseDB API error: ${response.status} - ${errorText}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`ExerciseDB API error: ${response.status}`);
+    return response.json();
+  } catch (error) {
+    console.error('ExerciseDB fetch error:', error.message);
+    throw error;
   }
-
-  return response.json();
 }
 
 // ===== EXERCISE ROUTES =====
